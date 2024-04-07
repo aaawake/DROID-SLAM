@@ -24,6 +24,7 @@ class TartanAir(RGBDDataset):
         self.mode = mode
         self.n_frames = 2
         super(TartanAir, self).__init__(name='TartanAir', **kwargs)
+        # super(TartanAir, self).__init__(name='TartanAir', crop_size=[96, 128], **kwargs)
 
     @staticmethod 
     def is_test_scene(scene):
@@ -35,7 +36,8 @@ class TartanAir(RGBDDataset):
         print("Building TartanAir dataset")
 
         scene_info = {}
-        scenes = glob.glob(osp.join(self.root, '*/*/*/*'))
+        # scenes = glob.glob(osp.join(self.root, '*/*/*/*'))
+        scenes = glob.glob(osp.join(self.root, '*/*'))
         for scene in tqdm(sorted(scenes)):
             images = sorted(glob.glob(osp.join(scene, 'image_left/*.png')))
             depths = sorted(glob.glob(osp.join(scene, 'depth_left/*.npy')))

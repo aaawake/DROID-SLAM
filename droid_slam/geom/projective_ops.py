@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 
 from lietorch import SE3, Sim3
+from torch.cuda.amp.autocast_mode import autocast as autocast
 
 MIN_DEPTH = 0.2
 
@@ -95,34 +96,34 @@ def actp(Gij, X0, jacobian=False):
 
 def projective_transform(poses, depths, intrinsics, ii, jj, jacobian=False, return_depth=False):
     """ map points from ii->jj """
+    with autocast(False):
+        # inverse project (pinhole)
+        X0, Jz = iproj(depths[:,ii], intrinsics[:,ii], jacobian=jacobian)
+        
+        # transform
+        Gij = poses[:,jj] * poses[:,ii].inv()
 
-    # inverse project (pinhole)
-    X0, Jz = iproj(depths[:,ii], intrinsics[:,ii], jacobian=jacobian)
-    
-    # transform
-    Gij = poses[:,jj] * poses[:,ii].inv()
+        Gij.data[:,ii==jj] = torch.as_tensor([-0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], device="cuda")
+        X1, Ja = actp(Gij, X0, jacobian=jacobian)
+        
+        # project (pinhole)
+        x1, Jp = proj(X1, intrinsics[:,jj], jacobian=jacobian, return_depth=return_depth)
 
-    Gij.data[:,ii==jj] = torch.as_tensor([-0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], device="cuda")
-    X1, Ja = actp(Gij, X0, jacobian=jacobian)
-    
-    # project (pinhole)
-    x1, Jp = proj(X1, intrinsics[:,jj], jacobian=jacobian, return_depth=return_depth)
+        # exclude points too close to camera
+        valid = ((X1[...,2] > MIN_DEPTH) & (X0[...,2] > MIN_DEPTH)).float()
+        valid = valid.unsqueeze(-1)
 
-    # exclude points too close to camera
-    valid = ((X1[...,2] > MIN_DEPTH) & (X0[...,2] > MIN_DEPTH)).float()
-    valid = valid.unsqueeze(-1)
+        if jacobian:
+            # Ji transforms according to dual adjoint
+            Jj = torch.matmul(Jp, Ja)
+            Ji = -Gij[:,:,None,None,None].adjT(Jj)
 
-    if jacobian:
-        # Ji transforms according to dual adjoint
-        Jj = torch.matmul(Jp, Ja)
-        Ji = -Gij[:,:,None,None,None].adjT(Jj)
+            Jz = Gij[:,:,None,None] * Jz
+            Jz = torch.matmul(Jp, Jz.unsqueeze(-1))
 
-        Jz = Gij[:,:,None,None] * Jz
-        Jz = torch.matmul(Jp, Jz.unsqueeze(-1))
+            return x1, valid, (Ji, Jj, Jz)
 
-        return x1, valid, (Ji, Jj, Jz)
-
-    return x1, valid
+        return x1, valid
 
 def induced_flow(poses, disps, intrinsics, ii, jj):
     """ optical flow induced by camera motion """

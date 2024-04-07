@@ -24,7 +24,9 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-
+# amp
+from torch.cuda.amp.autocast_mode import autocast as autocast
+from torch.cuda.amp.grad_scaler import GradScaler
 def setup_ddp(gpu, args):
     dist.init_process_group(                                   
     	backend='nccl',                                         
@@ -52,7 +54,17 @@ def train(gpu, args):
     model.cuda()
     model.train()
 
-    model = DDP(model, device_ids=[gpu], find_unused_parameters=False)
+    # model = DDP(model, device_ids=[gpu], find_unused_parameters=False)
+
+    model = DDP(model, device_ids=[gpu], find_unused_parameters=True)
+    # ct = 0
+    # for param in model.parameters():
+    #     ct += 1
+    #     param.requires_grad = False
+    #     if ct >= 70:
+    #         break
+    # for param in model.update.parameters():
+    #     param.requires_grad = True
 
     if args.ckpt is not None:
         model.load_state_dict(torch.load(args.ckpt))
@@ -66,9 +78,11 @@ def train(gpu, args):
     train_loader = DataLoader(db, batch_size=args.batch, sampler=train_sampler, num_workers=2)
 
     # fetch optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
         args.lr, args.steps, pct_start=0.01, cycle_momentum=False)
+    scaler = GradScaler()
 
     logger = Logger(args.name, scheduler)
     should_keep_training = True
@@ -112,7 +126,8 @@ def train(gpu, args):
                 flo_loss, flo_metrics = losses.flow_loss(Ps, disps, poses_est, disps_est, intrinsics, graph)
 
                 loss = args.w1 * geo_loss + args.w2 * res_loss + args.w3 * flo_loss
-                loss.backward()
+                # loss.backward()
+                scaler.scale(loss).backward()
 
                 Gs = poses_est[-1].detach()
                 disp0 = disps_est[-1][:,:,3::8,3::8].detach()
@@ -123,7 +138,9 @@ def train(gpu, args):
             metrics.update(flo_metrics)
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-            optimizer.step()
+            # optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             scheduler.step()
             
             total_steps += 1
@@ -183,5 +200,6 @@ if __name__ == '__main__':
 
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12356'
-    mp.spawn(train, nprocs=args.gpus, args=(args,))
-
+    # mp.spawn(train, nprocs=args.gpus, args=(args,))
+    with autocast(True):
+        train(0, args=args)

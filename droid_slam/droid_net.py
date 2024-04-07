@@ -16,6 +16,7 @@ import geom.projective_ops as pops
 from geom.graph_utils import graph_to_edge_list, keyframe_indicies
 
 from torch_scatter import scatter_mean
+from torch.cuda.amp.autocast_mode import autocast as autocast
 
 
 def cvx_upsample(data, mask):
@@ -95,14 +96,14 @@ class UpdateModule(nn.Module):
         self.weight = nn.Sequential(
             nn.Conv2d(128, 128, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(128, 2, 3, padding=1),
+            nn.Conv2d(128, 3, 3, padding=1),
             GradientClip(),
             nn.Sigmoid())
 
         self.delta = nn.Sequential(
             nn.Conv2d(128, 128, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(128, 2, 3, padding=1),
+            nn.Conv2d(128, 3, 3, padding=1),
             GradientClip())
 
         self.gru = ConvGRU(128, 128+128+64)
@@ -169,6 +170,7 @@ class DroidNet(nn.Module):
         return fmaps, net, inp
 
 
+    @torch.cuda.amp.autocast_mode.autocast(enabled=True)
     def forward(self, Gs, images, disps, intrinsics, graph=None, num_steps=12, fixedp=2):
         """ Estimates SE3 or Sim3 between pair of frames """
 
@@ -209,7 +211,8 @@ class DroidNet(nn.Module):
             target = coords1 + delta
 
             for i in range(2):
-                Gs, disps = BA(target, weight, eta, Gs, disps, intrinsics, ii, jj, fixedp=2)
+                with autocast(False):
+                    Gs, disps = BA(target, weight, eta, Gs, disps, intrinsics, ii, jj, fixedp=2)
 
             coords1, valid_mask = pops.projective_transform(Gs, disps, intrinsics, ii, jj)
             residual = (target - coords1)
