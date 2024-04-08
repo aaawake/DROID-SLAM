@@ -50,13 +50,14 @@ def train(gpu, args):
     rng = np.random.default_rng(12345)
 
     N = args.n_frames
+    accumulation_step = args.accumulation_step
     model = DroidNet()
     model.cuda()
     model.train()
 
-    # model = DDP(model, device_ids=[gpu], find_unused_parameters=False)
+    model = DDP(model, device_ids=[gpu], find_unused_parameters=False)
 
-    model = DDP(model, device_ids=[gpu], find_unused_parameters=True)
+    # model = DDP(model, device_ids=[gpu], find_unused_parameters=True)
     # ct = 0
     # for param in model.parameters():
     #     ct += 1
@@ -90,7 +91,7 @@ def train(gpu, args):
 
     while should_keep_training:
         for i_batch, item in enumerate(train_loader):
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
 
             images, poses, disps, intrinsics = [x.to('cuda') for x in item]
 
@@ -126,6 +127,7 @@ def train(gpu, args):
                 flo_loss, flo_metrics = losses.flow_loss(Ps, disps, poses_est, disps_est, intrinsics, graph)
 
                 loss = args.w1 * geo_loss + args.w2 * res_loss + args.w3 * flo_loss
+                loss = loss / accumulation_step
                 # loss.backward()
                 scaler.scale(loss).backward()
 
@@ -137,11 +139,13 @@ def train(gpu, args):
             metrics.update(res_metrics)
             metrics.update(flo_metrics)
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-            # optimizer.step()
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
+            if (total_steps + 1) % accumulation_step == 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                # optimizer.step()
+                scaler.step(optimizer)
+                optimizer.zero_grad()
+                scaler.update()
+                scheduler.step()
             
             total_steps += 1
 
@@ -153,6 +157,12 @@ def train(gpu, args):
                 torch.save(model.state_dict(), PATH)
 
             if total_steps >= args.steps:
+                if (total_steps + 1) % accumulation_step != 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                    # optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    scheduler.step()
                 should_keep_training = False
                 break
 
@@ -169,6 +179,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpus', type=int, default=4)
 
     parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('--accumulation_step', type=int, default=8)
     parser.add_argument('--iters', type=int, default=15)
     parser.add_argument('--steps', type=int, default=250000)
     parser.add_argument('--lr', type=float, default=0.00025)
