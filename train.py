@@ -71,7 +71,7 @@ def train(gpu, args):
         model.load_state_dict(torch.load(args.ckpt))
 
     # fetch dataloader
-    db = dataset_factory(['tartan'], datapath=args.datapath, n_frames=args.n_frames, fmin=args.fmin, fmax=args.fmax)
+    db = dataset_factory(dataset_list=args.datasets, datapath=args.datapath, n_frames=args.n_frames, fmin=args.fmin, fmax=args.fmax)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         db, shuffle=True, num_replicas=args.world_size, rank=gpu)
@@ -118,18 +118,22 @@ def train(gpu, args):
             while r < args.restart_prob:
                 r = rng.random()
                 
-                intrinsics0 = intrinsics / 8.0
-                poses_est, disps_est, residuals = model(Gs, images, disp0, intrinsics0, 
-                    graph, num_steps=args.iters, fixedp=2)
+                with autocast(args.autocast):
+                    intrinsics0 = intrinsics / 8.0
+                    poses_est, disps_est, residuals = model(Gs, images, disp0, intrinsics0, 
+                        graph, num_steps=args.iters, fixedp=2)
 
-                geo_loss, geo_metrics = losses.geodesic_loss(Ps, poses_est, graph, do_scale=False)
-                res_loss, res_metrics = losses.residual_loss(residuals)
-                flo_loss, flo_metrics = losses.flow_loss(Ps, disps, poses_est, disps_est, intrinsics, graph)
+                    geo_loss, geo_metrics = losses.geodesic_loss(Ps, poses_est, graph, do_scale=False)
+                    res_loss, res_metrics = losses.residual_loss(residuals)
+                    flo_loss, flo_metrics = losses.flow_loss(Ps, disps, poses_est, disps_est, intrinsics, graph)
 
-                loss = args.w1 * geo_loss + args.w2 * res_loss + args.w3 * flo_loss
-                loss = loss / accumulation_step
-                # loss.backward()
-                scaler.scale(loss).backward()
+                    loss = args.w1 * geo_loss + args.w2 * res_loss + args.w3 * flo_loss
+                    loss = loss / accumulation_step
+                if args.autocast:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_
+                else:
+                    loss.backward()
 
                 Gs = poses_est[-1].detach()
                 disp0 = disps_est[-1][:,:,3::8,3::8].detach()
@@ -141,10 +145,12 @@ def train(gpu, args):
 
             if (total_steps + 1) % accumulation_step == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-                # optimizer.step()
-                scaler.step(optimizer)
+                if args.autocast:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad()
-                scaler.update()
                 scheduler.step()
             
             total_steps += 1
@@ -159,9 +165,11 @@ def train(gpu, args):
             if total_steps >= args.steps:
                 if (total_steps + 1) % accumulation_step != 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-                    # optimizer.step()
-                    scaler.step(optimizer)
-                    scaler.update()
+                    if args.autocast:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
                     scheduler.step()
                 should_keep_training = False
                 break
@@ -173,8 +181,8 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='bla', help='name your experiment')
-    parser.add_argument('--ckpt', help='checkpoint to restore')
-    parser.add_argument('--datasets', nargs='+', help='lists of datasets for training')
+    parser.add_argument('--ckpt', default='checkpoints/droid.pth', help='checkpoint to restore')
+    parser.add_argument('--datasets', nargs='+', default=['tartan'], help='lists of datasets for training')
     parser.add_argument('--datapath', default='datasets/TartanAir', help="path to dataset directory")
     parser.add_argument('--gpus', type=int, default=4)
 
@@ -196,6 +204,7 @@ if __name__ == '__main__':
     parser.add_argument('--scale', action='store_true')
     parser.add_argument('--edges', type=int, default=24)
     parser.add_argument('--restart_prob', type=float, default=0.2)
+    parser.add_argument('--autocast', action='store_true')
 
     args = parser.parse_args()
 
@@ -212,5 +221,4 @@ if __name__ == '__main__':
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12356'
     # mp.spawn(train, nprocs=args.gpus, args=(args,))
-    with autocast(True):
-        train(0, args=args)
+    train(0, args=args)
