@@ -170,7 +170,7 @@ class DroidNet(nn.Module):
         return fmaps, net, inp
 
 
-    @torch.cuda.amp.autocast_mode.autocast(enabled=True)
+    # @torch.cuda.amp.autocast_mode.autocast(enabled=True)
     def forward(self, Gs, images, disps, intrinsics, graph=None, num_steps=12, fixedp=2):
         """ Estimates SE3 or Sim3 between pair of frames """
 

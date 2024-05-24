@@ -181,7 +181,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='bla', help='name your experiment')
-    parser.add_argument('--ckpt', default='checkpoints/droid.pth', help='checkpoint to restore')
+    parser.add_argument('--ckpt', help='checkpoint to restore')
     parser.add_argument('--datasets', nargs='+', default=['tartan'], help='lists of datasets for training')
     parser.add_argument('--datapath', default='datasets/TartanAir', help="path to dataset directory")
     parser.add_argument('--gpus', type=int, default=4)

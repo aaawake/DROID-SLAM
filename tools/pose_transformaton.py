@@ -71,9 +71,9 @@ class poseTrans():
         camera_matrix = tf.quaternion_matrix(frame_transforms[('/'+frame_id, '/'+frame_id[:-4]+'rgb_frame')]['rotation'])
         camera_matrix[:3, 3] = frame_transforms[('/'+frame_id, '/'+frame_id[:-4]+'rgb_frame')]['translation']
 
-        baselink_matrix = np.dot(np.dot(odom_matrix, base_matrix), ele_matrix)
+        baselink_matrix = np.dot(np.dot(ele_matrix, base_matrix), odom_matrix)
 
-        return camera_matrix, baselink_matrix
+        return ele_matrix, camera_matrix
 
     def trans_pose(self):
         # Creating a conversion matrix
@@ -85,7 +85,7 @@ class poseTrans():
         tf_matrix = tf.quaternion_matrix(tf_rotation)
         tf_matrix[:3, 3] = tf_translation
 
-        camera_matrix, baselink_matrix = self.base_transform(frame_transforms, child_frame_id)
+        ele_matrix, camera_matrix = self.base_transform(frame_transforms, child_frame_id)
 
         print(f"Transforming to {child_frame_id}")
         with open(self.pose_dir, 'r') as file:
@@ -102,7 +102,10 @@ class poseTrans():
                 pose1_matrix = tf.quaternion_matrix(pose1_rotation)
                 pose1_matrix[:3, 3] = pose1_translation
 
-                pose2_matrix = np.dot(camera_matrix, np.dot(tf_matrix, np.dot(baselink_matrix, pose1_matrix)))
+                # pose2_matrix = np.dot(camera_matrix, np.dot(tf_matrix, np.dot(baselink_matrix, pose1_matrix)))
+                # pose2_matrix = np.dot(camera_matrix, np.dot(tf_matrix, np.dot(ele_matrix, pose1_matrix)))
+                pose2_matrix = np.dot(tf_matrix, np.dot(ele_matrix, pose1_matrix))
+                # pose2_matrix = np.dot(ele_matrix, pose1_matrix)
                 pose2_translation = pose2_matrix[:3, 3]
                 pose2_rotation_quaternion = tf.quaternion_from_matrix(pose2_matrix)
                 translation_str = " ".join([f"{value:.7f}" for value in pose2_translation])
