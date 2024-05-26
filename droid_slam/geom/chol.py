@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import geom.projective_ops as pops
+import logging
 
 class CholeskySolver(torch.autograd.Function):
     @staticmethod
@@ -13,6 +14,7 @@ class CholeskySolver(torch.autograd.Function):
             ctx.failed = False
         except Exception as e:
             print(e)
+            logging.warning(e)
             ctx.failed = True
             xs = torch.zeros_like(b)
 

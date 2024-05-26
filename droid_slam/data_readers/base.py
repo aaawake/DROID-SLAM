@@ -12,6 +12,7 @@ import random
 import json
 import pickle
 import os.path as osp
+import logging
 
 from .augmentation import RGBDAugmentor
 from .rgbd_utils import *
@@ -57,6 +58,8 @@ class RGBDDataset(data.Dataset):
                         self.dataset_index.append((scene, i))
             else:
                 print("Reserving {} for validation".format(scene))
+                logging.info("Reserving {} for validation".format(scene))
+                
 
     @staticmethod
     def image_read(image_file):

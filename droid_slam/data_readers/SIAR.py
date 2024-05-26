@@ -5,6 +5,7 @@ import glob
 import cv2
 import os
 import os.path as osp
+import logging
 
 from lietorch import SE3
 from .base import RGBDDataset
@@ -34,6 +35,7 @@ class SIAR(RGBDDataset):
     def _build_dataset(self):
         from tqdm import tqdm
         print("Building SIAR dataset")
+        logging.info("Building SIAR dataset")
 
         scene_info = {}
         # scenes = glob.glob(osp.join(self.root, '*/*/*/*'))
@@ -49,10 +51,11 @@ class SIAR(RGBDDataset):
                 depths = sorted(glob.glob(osp.join(camera, 'depth_registered/*.npy')))
                 
                 poses = np.loadtxt(osp.join(camera, 'pose.txt'), delimiter=' ')
-                # X = forward / backward; Y = right / left; Z = up / down
+                # X = forward / backward; Y = left / right; Z = up / down
                 # to
-                # X = right / left; Y = up / down; Z = forward / backward
+                # X = right / left; Y = down / up; Z = forward / backward
                 poses = poses[:, [2, 3, 1, 5, 6, 4, 7]]
+                # poses = poses[:, [-2, -3, 1, 4, 5, 6, 7]]
                 poses[:,:3] /= SIAR.DEPTH_SCALE
                 intrinsics = [SIAR.calib_read(osp.basename(camera))] * len(images)
 
@@ -116,7 +119,8 @@ class SIARStream(RGBDStream):
         # X = forward / backward; Y = right / left; Z = up / down
         # to
         # X = right / left; Y = up / down; Z = forward / backward
-        poses = poses[:, [2, 3, 1, 5, 6, 4, 7]]
+        # poses = poses[:, [2, 3, 1, 5, 6, 4, 7]]
+        poses = poses[:, [-2, -3, 1, 4, 5, 6, 7]]
 
         poses = SE3(torch.as_tensor(poses))
         poses = poses[[0]].inv() * poses
@@ -149,7 +153,8 @@ class SIARTestStream(RGBDStream):
         images = sorted(glob.glob(image_glob))
 
         poses = np.loadtxt(osp.join(self.root, 'mono_gt', self.datapath + '.txt'), delimiter=' ')
-        poses = poses[:, [2, 3, 1, 5, 6, 4, 7]]
+        # poses = poses[:, [2, 3, 1, 5, 6, 4, 7]]
+        poses = poses[:, [-2, -3, 1, 4, 5, 6, 7]]
 
         poses = SE3(torch.as_tensor(poses))
         poses = poses[[0]].inv() * poses

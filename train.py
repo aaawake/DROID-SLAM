@@ -18,6 +18,7 @@ from geom.graph_utils import build_frame_graph
 # network
 from droid_net import DroidNet
 from logger import Logger
+import logging
 
 # DDP training
 import torch.multiprocessing as mp
@@ -67,6 +68,12 @@ def train(gpu, args):
     # for param in model.update.parameters():
     #     param.requires_grad = True
 
+    for handler in logging.getLogger().handlers[:]:
+        logging.getLogger().removeHandler(handler)
+    open('/home/dongjialin/workspace/pipeSLAM_ws/src/DROID-SLAM/log/'+args.name+'.log', 'a').close()
+    logging.basicConfig(filename='/home/dongjialin/workspace/pipeSLAM_ws/src/DROID-SLAM/log/'+args.name+'.log', level=logging.INFO, format='%(levelname)s:%(message)s')
+    logging.info(args)
+    
     if args.ckpt is not None:
         model.load_state_dict(torch.load(args.ckpt))
 
@@ -150,6 +157,17 @@ def train(gpu, args):
                     scaler.update()
                 else:
                     optimizer.step()
+                
+                para_grads = []
+                for name, parameters in model.named_parameters():
+                    if parameters.grad is not None and torch.any(parameters.grad != 0):
+                        tmp_para = {}	
+                        tmp_para['name'] = name
+                        tmp_para['parameters'] = parameters
+                        para_grads.append(tmp_para)
+                if gpu == 0:
+                    logger.pushGrads(para_grads)
+
                 optimizer.zero_grad()
                 scheduler.step()
             

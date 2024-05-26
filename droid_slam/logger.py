@@ -1,7 +1,7 @@
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
-
+import logging
 
 SUM_FREQ = 100
 
@@ -9,6 +9,7 @@ class Logger:
     def __init__(self, name, scheduler):
         self.total_steps = 0
         self.running_loss = {}
+        self.parameters_grad = []
         self.writer = None
         self.name = name
         self.scheduler = scheduler
@@ -25,11 +26,22 @@ class Logger:
         
         # print the training status
         print(training_str + metrics_str)
+        logging.info('\n*************************************************************************************************************************************************')
+        logging.info(training_str + metrics_str)
+        logging.info('********************************************************************************************************************************************\n')
 
         for key in self.running_loss:
             val = self.running_loss[key] / SUM_FREQ
             self.writer.add_scalar(key, val, self.total_steps)
             self.running_loss[key] = 0.0
+
+    def _print_parameters_grad(self):
+        # log the gradients
+        lr = self.scheduler.get_lr().pop()
+        logging.info("=======================================================>[{:6d}, {:10.7f}]<=======================================================".format(self.total_steps+1, lr))
+        for parameter_grad in self.parameters_grad:
+            para_grad_data = f'Parameter: {parameter_grad["name"]}, Value: {torch.mean(parameter_grad["parameters"].grad)}'
+            logging.info(para_grad_data)
 
     def push(self, metrics):
 
@@ -44,6 +56,10 @@ class Logger:
             self.running_loss = {}
 
         self.total_steps += 1
+
+    def pushGrads(self, grads):
+        self.parameters_grad = grads
+        self._print_parameters_grad()
 
     def write_dict(self, results):
         for key in results:

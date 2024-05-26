@@ -2,6 +2,7 @@
 import pickle
 import os
 import os.path as osp
+import logging
 
 # RGBD-Dataset
 from .tartan import TartanAir
@@ -28,6 +29,7 @@ def dataset_factory(dataset_list, **kwargs):
         db = dataset_map[key][0](**kwargs)
 
         print("Dataset {} has {} images".format(key, len(db)))
+        logging.info("Dataset {} has {} images".format(key, len(db)))
         db_list.append(db)
 
     return ConcatDataset(db_list)
