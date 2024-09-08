@@ -30,11 +30,6 @@ class RGBDAugmentor:
         intrinsics = scale * intrinsics
         depths = depths.unsqueeze(dim=1)
 
-        images = F.interpolate(images, size=[i*2 for i in self.crop_size], mode='bilinear', 
-            align_corners=False)
-        depths = F.interpolate(depths, size=[i*2 for i in self.crop_size], mode='bilinear',
-            align_corners=False)
-
         images = F.interpolate(images, scale_factor=scale, mode='bilinear', 
             align_corners=False, recompute_scale_factor=True)
         

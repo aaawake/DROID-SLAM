@@ -59,21 +59,38 @@ class poseTrans():
         return frame_transforms
 
     def base_transform(self, frame_transforms, frame_id):
-        odom_matrix = tf.quaternion_matrix(frame_transforms[('map', 'odom')]['rotation'])
-        odom_matrix[:3, 3] = frame_transforms[('map', 'odom')]['translation']
+        # odom_matrix = tf.quaternion_matrix(frame_transforms[('map', 'odom')]['rotation'])
+        # odom_matrix[:3, 3] = frame_transforms[('map', 'odom')]['translation']
 
-        base_matrix = tf.quaternion_matrix(frame_transforms[('/odom', '/base_link')]['rotation'])
-        base_matrix[:3, 3] = frame_transforms[('/odom', '/base_link')]['translation']
+        # base_matrix = tf.quaternion_matrix(frame_transforms[('/odom', '/base_link')]['rotation'])
+        # base_matrix[:3, 3] = frame_transforms[('/odom', '/base_link')]['translation']
 
-        ele_matrix = tf.quaternion_matrix(frame_transforms[('/base_link', 'electronics_center')]['rotation'])
-        ele_matrix[:3, 3] = frame_transforms[('/base_link', 'electronics_center')]['translation']
+        # ele_matrix = tf.quaternion_matrix(frame_transforms[('/base_link', 'electronics_center')]['rotation'])
+        # ele_matrix[:3, 3] = frame_transforms[('/base_link', 'electronics_center')]['translation']
 
-        camera_matrix = tf.quaternion_matrix(frame_transforms[('/'+frame_id, '/'+frame_id[:-4]+'rgb_frame')]['rotation'])
-        camera_matrix[:3, 3] = frame_transforms[('/'+frame_id, '/'+frame_id[:-4]+'rgb_frame')]['translation']
+        # camera_matrix = tf.quaternion_matrix(frame_transforms[('/'+frame_id, '/'+frame_id[:-4]+'rgb_frame')]['rotation'])
+        # camera_matrix[:3, 3] = frame_transforms[('/'+frame_id, '/'+frame_id[:-4]+'rgb_frame')]['translation']
 
-        baselink_matrix = np.dot(np.dot(ele_matrix, base_matrix), odom_matrix)
+        # baselink_matrix = np.dot(np.dot(ele_matrix, base_matrix), odom_matrix)
 
-        return ele_matrix, camera_matrix
+        T_frontRGB_front = tf.quaternion_matrix(frame_transforms[('/front_link', '/front_rgb_frame')]['rotation'])
+        T_frontRGB_front[:3, 3] = frame_transforms[('/front_link', '/front_rgb_frame')]['translation']
+
+        T_front_ele = tf.quaternion_matrix(frame_transforms[('electronics_center', 'front_link')]['rotation'])
+        T_front_ele[:3, 3] = frame_transforms[('electronics_center', 'front_link')]['translation']
+
+        T_back_ele = tf.quaternion_matrix(frame_transforms[('electronics_center', 'back_link')]['rotation'])
+        T_back_ele[:3, 3] = frame_transforms[('electronics_center', 'back_link')]['translation']
+
+        T_backRGB_back = tf.quaternion_matrix(frame_transforms[('/back_link', '/back_rgb_frame')]['rotation'])
+        T_backRGB_back[:3, 3] = frame_transforms[('/back_link', '/back_rgb_frame')]['translation']
+
+        T_front_cur = np.dot(T_frontRGB_front, np.dot(T_front_ele, np.dot(np.linalg.inv(T_back_ele), np.linalg.inv(T_backRGB_back))))
+        T_cur_front = np.linalg.inv(T_front_cur)
+
+
+
+        return T_cur_front, T_front_cur
 
     def trans_pose(self):
         # Creating a conversion matrix
@@ -85,7 +102,7 @@ class poseTrans():
         tf_matrix = tf.quaternion_matrix(tf_rotation)
         tf_matrix[:3, 3] = tf_translation
 
-        ele_matrix, camera_matrix = self.base_transform(frame_transforms, child_frame_id)
+        T_cur_front, T_front_cur = self.base_transform(frame_transforms, child_frame_id)
 
         print(f"Transforming to {child_frame_id}")
         with open(self.pose_dir, 'r') as file:
@@ -94,20 +111,28 @@ class poseTrans():
         with open(self.new_pose_dir, 'w') as new_file:
             # for i in tqdm(range(len(lines)), bar_format='Transform: {percentage:.1f}%|{bar}|', leave=True):
                 # line = lines[i]
-            for line in lines:
+            T_w_cur = np.eye(4)
+            for i, line in enumerate(lines):
                 data = line.split()
                 timestamp = data[0]
                 pose1_translation = [float(data[i]) for i in range(1, 4)]
                 pose1_rotation = [float(data[i]) for i in range(4, 8)]
-                pose1_matrix = tf.quaternion_matrix(pose1_rotation)
-                pose1_matrix[:3, 3] = pose1_translation
+                T_w_front = tf.quaternion_matrix(pose1_rotation)
+                T_w_front[:3, 3] = pose1_translation
 
-                # pose2_matrix = np.dot(camera_matrix, np.dot(tf_matrix, np.dot(baselink_matrix, pose1_matrix)))
-                # pose2_matrix = np.dot(camera_matrix, np.dot(tf_matrix, np.dot(ele_matrix, pose1_matrix)))
-                pose2_matrix = np.dot(tf_matrix, np.dot(ele_matrix, pose1_matrix))
-                # pose2_matrix = np.dot(ele_matrix, pose1_matrix)
-                pose2_translation = pose2_matrix[:3, 3]
-                pose2_rotation_quaternion = tf.quaternion_from_matrix(pose2_matrix)
+                if i > 0:
+                    T_fn_fo = np.dot(np.linalg.inv(T_w_front), T_w_front_last)
+                    T_cn_co = np.dot(np.dot(T_cur_front, T_fn_fo), T_front_cur)
+                    T_w_cur = np.dot(T_w_cur_last, np.linalg.inv(T_cn_co))
+                # # pose2_matrix = np.dot(camera_matrix, np.dot(tf_matrix, np.dot(baselink_matrix, pose1_matrix)))
+                # pose2_matrix = np.linalg.inv(np.dot(camera_matrix, np.dot(tf_matrix, np.dot(ele_matrix, np.linalg.inv(pose1_matrix)))))
+                # # pose2_matrix = np.dot(tf_matrix, np.dot(ele_matrix, pose1_matrix))
+                # # pose2_matrix = np.dot(ele_matrix, pose1_matrix)
+                T_w_front_last = T_w_front
+                T_w_cur_last = T_w_cur
+
+                pose2_translation = T_w_cur[:3, 3]
+                pose2_rotation_quaternion = tf.quaternion_from_matrix(T_w_cur)
                 translation_str = " ".join([f"{value:.7f}" for value in pose2_translation])
                 rotation_str = " ".join([f"{value:.7f}" for value in pose2_rotation_quaternion])
 

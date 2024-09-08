@@ -18,6 +18,7 @@ class Logger:
         if self.writer is None:
             self.writer = SummaryWriter('runs/%s' % self.name)
             print([k for k in self.running_loss])
+            logging.info([k for k in self.running_loss])
 
         lr = self.scheduler.get_lr().pop()
         metrics_data = [self.running_loss[k]/SUM_FREQ for k in self.running_loss.keys()]
@@ -59,7 +60,7 @@ class Logger:
 
     def pushGrads(self, grads):
         self.parameters_grad = grads
-        self._print_parameters_grad()
+        # self._print_parameters_grad()
 
     def write_dict(self, results):
         for key in results:

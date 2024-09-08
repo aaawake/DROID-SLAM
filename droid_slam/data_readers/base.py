@@ -74,7 +74,6 @@ class RGBDDataset(data.Dataset):
         def read_disp(fn):
             depth = self.__class__.depth_read(fn)[f//2::f, f//2::f]
             depth[depth < 0.01] = np.mean(depth)
-            depth[depth == 0] = 0.01
             return 1.0 / depth
 
         poses = np.array(poses)
@@ -137,7 +136,9 @@ class RGBDDataset(data.Dataset):
         images = torch.from_numpy(images).float()
         images = images.permute(0, 3, 1, 2)
 
-        depths[depths == 0] = 0.01
+        # if np.mean(depths):
+        #     print("Depth is 0")
+        depths[depths < 0.01] = np.mean(depths)
         disps = torch.from_numpy(1.0 / depths)
         poses = torch.from_numpy(poses)
         intrinsics = torch.from_numpy(intrinsics)
